@@ -1,0 +1,95 @@
+from m5stack import *
+from m5ui import *
+from uiflow import *
+import wifiCfg
+import unit
+import time
+import os
+
+# UI setup
+setScreenColor(0x111111)
+label0 = M5TextBox(10, 10, "Smart Agri Assistant", lcd.FONT_DejaVu18, 0xFFFFFF, rotate=0)
+label1 = M5TextBox(10, 40, "Temp:", lcd.FONT_Default, 0xFFFFFF, rotate=0)
+label2 = M5TextBox(10, 70, "Humidity:", lcd.FONT_Default, 0xFFFFFF, rotate=0)
+label3 = M5TextBox(10, 100, "Pressure:", lcd.FONT_Default, 0xFFFFFF, rotate=0)
+label4 = M5TextBox(10, 130, "Irrigation Status:", lcd.FONT_Default, 0xFFFFFF, rotate=0)
+label5 = M5TextBox(10, 160, "Intrusion Status:", lcd.FONT_Default, 0xFFFFFF, rotate=0)
+
+# Connect Wi-Fi (for RTC sync if needed)
+wifiCfg.doConnect('Daraneeswaran', 'Daran@98948')
+
+# Initialize sensors
+env0 = unit.get(unit.ENV3, unit.PORTA)
+pir0 = unit.get(unit.PIR, unit.PORTB)
+
+# Try mounting SD card
+sd_ready = False
+try:
+    mountSDCard()
+    if 'sd' in os.listdir('/'):
+        sd_ready = True
+        print("✅ SD card mounted")
+except Exception as e:
+    print("❌ SD mount failed:", e)
+    label0.setText('SD Mount Failed')
+
+log_file = '/sd/agri_log.txt'
+
+# Function to log data to TXT file
+def log_to_txt(temp, hum, pres, irrigation, intrusion):
+    if not sd_ready:
+        print("⚠️ SD not ready")
+        return
+    timestamp = rtc.datetime()
+    time_str = '{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}'.format(
+        timestamp[0], timestamp[1], timestamp[2], timestamp[4], timestamp[5], timestamp[6])
+    entry = '[{}] Temp: {}C, Humidity: {}%, Pressure: {}hPa, Irrigation: {}, Intrusion: {}\n'.format(
+        time_str, temp, hum, pres, irrigation, intrusion)
+    try:
+        with open(log_file, 'a') as f:
+            f.write(entry)
+        print("✅ Logged:", entry)
+    except Exception as e:
+        print("❌ Write failed:", e)
+        label0.setText('TXT Write Failed')
+
+alert_counter = 0
+
+# Main loop
+while True:
+    temp = env0.temperature
+    hum = env0.humidity
+    pres = env0.pressure
+
+    label1.setText('Temp: ' + str(temp) + '°C')
+    label2.setText('Humidity: ' + str(hum) + '%')
+    label3.setText('Pressure: ' + str(pres) + 'hPa')
+
+    if hum > 60:
+        rgb.setColorAll(0x00FF00)
+        label4.setText('Optimal')
+        irrigation = 'Optimal'
+        alert_counter = 0
+    elif hum > 30:
+        rgb.setColorAll(0xFFA500)
+        label4.setText('Moderate – Water Soon')
+        speaker.tone(1000, 200)
+        irrigation = 'Moderate'
+        alert_counter = 0
+    else:
+        rgb.setColorAll(0xFF0000)
+        label4.setText('CRITICAL – Water Now')
+        speaker.tone(1000, 200)
+        irrigation = 'Critical'
+        alert_counter += 1
+
+    if pir0.state:
+        label5.setText('INTRUSION DETECTED!')
+        speaker.tone(500, 200)
+        intrusion = 'Detected'
+    else:
+        label5.setText('No Intrusion')
+        intrusion = 'None'
+
+    log_to_txt(temp, hum, pres, irrigation, intrusion)
+    wait(60)
